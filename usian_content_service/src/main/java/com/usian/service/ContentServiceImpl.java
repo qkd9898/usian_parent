@@ -7,6 +7,7 @@ import com.usian.mapper.TbContentMapper;
 import com.usian.pojo.TbContent;
 import com.usian.pojo.TbContentCategory;
 import com.usian.pojo.TbContentExample;
+import com.usian.redis.RedisClient;
 import com.usian.utils.AdNode;
 import com.usian.utils.PageResult;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -37,6 +38,12 @@ public class ContentServiceImpl implements ContentService{
     @Value("${AD_WIDTHB}")
     private Integer AD_WIDTHB;
 
+    @Value("${PORTAL_AD_KEY}")
+    private String PORTAL_AD_KEY;
+
+    @Autowired
+    private RedisClient redisClient;
+
     @Autowired
     private TbContentMapper tbContentMapper;
 
@@ -57,20 +64,34 @@ public class ContentServiceImpl implements ContentService{
 
     @Override
     public Integer insertTbContent(TbContent tbContent) {
-        Date date = new Date();
-        tbContent.setCreated(date);
-        tbContent.setUpdated(date);
-        return tbContentMapper.insertSelective(tbContent);
+        tbContent.setUpdated(new Date());
+        tbContent.setCreated(new Date());
+        Integer num = this.tbContentMapper.insertSelective(tbContent);
+        //缓存同步
+        redisClient.hdel(PORTAL_AD_KEY,AD_CATEGORY_ID.toString());
+        return num;
     }
 
+    /**
+     * 删除分类内容
+     * @param id
+     * @return
+     */
     @Override
-    public Integer deleteContentByIds(Long ids) {
-        return tbContentMapper.deleteByPrimaryKey(ids);
+    public Integer deleteContentByIds(Long id) {
+        Integer num = this.tbContentMapper.deleteByPrimaryKey(id);
+        //缓存同步
+        redisClient.hdel(PORTAL_AD_KEY,AD_CATEGORY_ID.toString());
+        return num;
     }
 
     @Override
     public List<AdNode> selectFrontendContentByAD() {
         // 查询TbContent
+        List<AdNode> adNodeListRedis = (List<AdNode>) redisClient.hget(PORTAL_AD_KEY,AD_CATEGORY_ID.toString());
+        if(adNodeListRedis!=null){
+            return  adNodeListRedis;
+        }
         TbContentExample tbContentExample = new TbContentExample();
         TbContentExample.Criteria criteria = tbContentExample.createCriteria();
         criteria.andCategoryIdEqualTo(AD_CATEGORY_ID);
@@ -88,6 +109,7 @@ public class ContentServiceImpl implements ContentService{
             adNode.setWidthB(AD_WIDTHB);
             adNodeList.add(adNode);
         }
+        redisClient.hset(PORTAL_AD_KEY,AD_CATEGORY_ID.toString(),adNodeList);
         return adNodeList;
     }
 
